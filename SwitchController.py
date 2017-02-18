@@ -1,4 +1,4 @@
-import string, cherrypy, HTML, os, sys, argparse
+import string, cherrypy, os, sys, argparse
 
 
 '''==============================================================
@@ -10,6 +10,7 @@ def enum(**enums):
 # Enumerated types for pins of the edge devices
 PinTypes = enum(momentary_switch='momentary_switch', toggle_switch='toggle_switch',digital_input='digital_input', analog_input='analog_input')
 
+# Instance of ControlHub contains a list of edge device objects
 class ControlHub:
   def __init__(self,name):
     self.name = name
@@ -24,6 +25,7 @@ class ControlHub:
   def addEdgeDevice(self,device):
     self.edgeDevices.append(device)
 
+  # Return edge device object  
   def getEdgeDevice(self,id):
     for device in self.edgeDevices:
       if device.id == id:
@@ -32,15 +34,14 @@ class ControlHub:
     print '''Error, can't find device %d in  %s''' % (id, self.name)
 
   def showAsHtml(self):
-    text = "<html><h2>" + self.name + "</h2>\n<table>"
+    text = "<h2>" + self.name + "</h2>\n<table border=1>"
     for device in self.edgeDevices:
       text += "\n " + device.showAsHtml()
-    text += "\n</table>\n</html>"
+    text += "\n</table>\n"
     return text
 
 # Each instance of this class controls one edge device with few pin switches which can be set to either 0 or 1 
-# pin can control optocoupler, relay or led 
-# Every edge device must have unique ID 
+# pin can control optocoupler, relay or led. Every edge device must have unique ID 
 class EdgeDevice:
   def __init__(self,deviceName,deviceId,pins=((2,PinTypes.momentary_switch),(3,PinTypes.toggle_switch))):
     self.name = deviceName
@@ -50,12 +51,14 @@ class EdgeDevice:
     # Initialize pins
     for pin in pins:
       pinId = pin[0]
-      pinType = pin[1]
+      pinType = pin[1]  
+      # pins is a dictionary whose keys are pinId's and values are Pin objects
       self.pins[pinId] = Pin(pinId,pinType,deviceId)
 
   def __repr__(self):
     return getInfo(self)
 
+  # Print textual information about this edge device
   def getInfo(self):
     text = " device name=" + self.name + " id=" + str(self.id) 
     for pinId in sorted(self.pins.keys()):
@@ -67,7 +70,8 @@ class EdgeDevice:
     pin.setState(pinValue)
 
   def showAsHtml(self):
-    text = '''<tr><td colspan="3" bgcolor="cyan"> device %s id=%d </td> </tr>''' % (self.name,self.id)
+    text = '''<tr><td colspan="5" bgcolor="cyan"> device %s id=%d </td> </tr>''' % (self.name,self.id)
+    text += "<tr><td>pin id</td> <td>pin type</td> <td>pin state</td> <td>Turn on at</td> <td>Turn off at</td></tr>"
     for pinId in sorted(self.pins.keys()):
       pin = self.pins[pinId]
       text += pin.showAsHtml()
@@ -82,6 +86,9 @@ class Pin:
     self.type = pinType
     self.deviceId = deviceId    
     self.state = 0
+    # Time for automatic turn/on turn off
+    self.startTime = "---"
+    self.endTime = "---"
 
   # This function actually sneds radio signal to edge device
   def sendSequenceToEdgeDevice(self,sequence):
@@ -117,7 +124,7 @@ class Pin:
 
   # Show table html representation for the web server
   def showAsHtml(self):
-    return "\n   <tr><td> %d </td> <td> %s </td> <td> %d </td>" % (self.id, self.type, self.state)  
+    return "\n   <tr><td>%d</td> <td>%s</td> <td>%d</td> <td>%s</td> <td>%s</td>" % (self.id, self.type, self.state, self.startTime, self.endTime)  
   
 '''
 ================================================================
@@ -127,70 +134,24 @@ class MainServer(object):
 
   def __init__(self):
     print "MainServer initialized"
+    self.css = '''td {
+      border: solid thin;
+      text-align: center;
+    }'''
 
-    # Temporarily hardcode creation of edge devices
-    device3 = EdgeDevice("abc",3)
-    device4 = EdgeDevice("xyz",4)
-
-
-  
+ 
   # This is the entry point to the web interface
   @cherrypy.expose
   def index(self):
-    text = "<html><h2> Switch controller</h2>"
-    #t = HTML.Table(header_row=["Edge device name","ID","State"])
-    text += '''
-<table>
-  <tr>
-    <td colspan="3" bgcolor="cyan"> Device </td> 
-  </tr>
-  <tr>
-    <td >Pin id</td>
-    <td>type</td>
-    <td>Toggle</td>
-  </tr>
-  <tr>
-    <td colspan="2">This</td>
-    <td>Little</td>
-    <td>Piggy</td>
-    <td>Went</td>
-    <td>To</td>
-  </tr>
-    <tr>
-    <td colspan="4">This</td>
-    <td rowspan="3">Little</td>
-    <td>Piggy</td>
-  </tr>
-  <tr>
-    <td rowspan="2">This</td>
-    <td>Little</td>
-    <td>Piggy</td>
-    <td>Went</td>
-    <td>To</td>
-  </tr>
-  <tr>
-    <td>Little</td>
-    <td>Piggy</td>
-    <td>Went</td>
-    <td>To</td>
-  </tr>
-</table>
-'''
-
-    return text
+    return "<html>" + myHub.showAsHtml() + "</html>"
 
 '''
 =================================================================
     Section 3 - testing and main proc
 ================================================================='''
-def testMode():
-  myHub = ControlHub("Switch controller hub")
-  myHub.addEdgeDevice(EdgeDevice("abc",3))
-  myHub.addEdgeDevice(EdgeDevice("xyz",4))
+def testMode(): 
   print myHub
   
- 
-
   print "\nTesting momentary switch pin 2 of device 3"
   device3 = myHub.getEdgeDevice(3)
   device3.setPinState(2,1)
@@ -207,6 +168,11 @@ def testMode():
   print myHub.showAsHtml()
 
 if __name__ == '__main__':
+  # Create control hub with two edge devices
+  myHub = ControlHub("Switch control hub")
+  myHub.addEdgeDevice(EdgeDevice("Yasha's mattress heater",3))
+  myHub.addEdgeDevice(EdgeDevice("Gila's mattress heater ",4))
+
   parser = argparse.ArgumentParser()
   parser.add_argument('-w', '--web', help='Run under web server',action="store_true")
   args = parser.parse_args()
