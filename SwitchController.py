@@ -1,8 +1,9 @@
 import string, cherrypy, os, sys, argparse
-
+from radioComm import *
 
 '''==============================================================
-   Section 1 - classes supporting communication with edge devices
+   Section 1 - classes defining behavior of the structure 
+    ControlHub -> EdgeDevice/s -> Pin/s
   ==============================================================='''
 def enum(**enums):
     return type('Enum', (), enums)
@@ -25,7 +26,7 @@ class ControlHub:
   def addEdgeDevice(self,device):
     self.edgeDevices.append(device)
 
-  # Return edge device object  
+  # Return edge device object  by its id
   def getEdgeDevice(self,id):
     for device in self.edgeDevices:
       if device.id == id:
@@ -34,7 +35,8 @@ class ControlHub:
     print '''Error, can't find device %d in  %s''' % (id, self.name)
 
   def showAsHtml(self):
-    text = "<h2>" + self.name + "</h2>\n<table border=1>"
+    text = '''<h2> %s </h2>
+    <table border=1>''' % self.name
     for device in self.edgeDevices:
       text += "\n " + device.showAsHtml()
     text += "\n</table>\n"
@@ -43,17 +45,35 @@ class ControlHub:
 # Each instance of this class controls one edge device with few pin switches which can be set to either 0 or 1 
 # pin can control optocoupler, relay or led. Every edge device must have unique ID 
 class EdgeDevice:
-  def __init__(self,deviceName,deviceId,pins=((2,PinTypes.momentary_switch),(3,PinTypes.toggle_switch))):
+  def __init__(self,deviceId,deviceName,pins):
     self.name = deviceName
     self.id = deviceId
     self.pins = {}
     
-    # Initialize pins
+    # Initialize pin objects belonging to this edge device
+    # passed var pins is a list of tuples, each consists of 4 parms:
     for pin in pins:
-      pinId = pin[0]
-      pinType = pin[1]  
-      # pins is a dictionary whose keys are pinId's and values are Pin objects
-      self.pins[pinId] = Pin(pinId,pinType,deviceId)
+      (pinId, pinType, startTime, endTime) = pin
+
+      # class var 'pins' is a dictionary whose keys are pinId's and values are Pin objects
+      self.pins[pinId] = Pin(deviceId, pinId, pinType, startTime, endTime)
+
+  # Get a hash of name-value parameters from configureEdgeDevice web form 
+  # and store this parms as appropriate member vars of the edge device
+  # object and its pin objects
+  def configure(self,parmHash):
+    for key, value in parmHash.iteritems():
+      if (key=="deviceId"):
+        continue
+      (pinId, parmName) = key.split(":")
+      pinId = int(pinId)
+      pin = self.pins[pinId]
+      if (parmName == "startTime"):
+        pin.startTime = value
+      elif (parmName=="endTime"):
+        pin.endTime = value
+      elif (parmName=="state"):
+        pin.setState(int(value))
 
   def __repr__(self):
     return getInfo(self)
@@ -65,17 +85,17 @@ class EdgeDevice:
       text += "\n  " + self.pins[pinId].getInfo()  
     return text
 
-  def setPinState(self,pinId,pinValue):
-    pin = self.pins[pinId]
-    pin.setState(pinValue)
-
-  # This prints a portion of total HTML table describing the info of this edge device and status of all its pins
+  # This prints a portion of main HTML table describing the info of this edge device and status of all its pins
   def showAsHtml(self):
-    configure_btn = '''<form method="get" action="configureEdgeDevice">
-    <button  name="device_id" value ="%d" type="submit">Configure</button>
+    configure_btn = '''
+    <form method="get" action="configureEdgeDevice">
+      <button  name="device_id" value ="%d" type="submit"/>Configure
     </form>''' % self.id
 
-    text = '''<tr><td colspan="5" bgcolor="cyan"> %s (id=%d) %s</td> </tr>''' % (self.name,self.id,configure_btn)
+    text = '''
+      <tr>
+        <td colspan="5" bgcolor="cyan"> %s (id=%d) %s</td> 
+      </tr>''' % (self.name,self.id,configure_btn)
     text += "<tr><td>pin id</td> <td>pin type</td> <td>pin state</td> <td>Turn on at</td> <td>Turn off at</td></tr>"
     for pinId in sorted(self.pins.keys()):
       pin = self.pins[pinId]
@@ -84,18 +104,25 @@ class EdgeDevice:
 
   # Display HTML form containing all the fields necessary for configuration of this edge device 
   def showConfigDialog(self):
-    text = '''<html><b>Configuring edge device: %s (id=%d)</b>''' % (self.name, self.id)
-    
-    # Print configuration sections for each pin
+    text = '''
+    <html>
+      <b>Configuring edge device: %s (id=%d)</b>
+      <form method="get" action="submitEdgeDeviceConfig">''' % (self.name, self.id)
+
+    # Print configuration web form sections for each pin
     for pinId in sorted(self.pins.keys()):
       pin = self.pins[pinId]
       text += pin.showConfigDialog()
 
-    text += '''<form method="get" action="submitEdgeDeviceConfig">
-    <button  name="device_id" value ="%d" type="submit">Submit</button>
-    </form>''' % self.id
-
-    text += "</html>"
+    # Finish web form configuring edge device with Submit button
+    text += '''
+      <div>
+          <br>
+          <button  name="deviceId" value ="%d" type="submit">Submit</button>
+          <button  name="deviceId" value = -1 type="submit">Cancel</button>
+      </div>
+      </form>
+    </html>''' % self.id
     return text
 
 
@@ -104,14 +131,14 @@ class EdgeDevice:
 # Edge device pin can be of the following types:
 #  momentary_switch, toggle_switch, digital_input, analog_input
 class Pin:
-  def __init__(self,pinId, pinType, deviceId):
+  def __init__(self, deviceId, pinId, pinType, startTime, endTime):
+    self.deviceId = deviceId
     self.id = pinId
     self.type = pinType
-    self.deviceId = deviceId    
     self.state = 0
     # Time for automatic turn/on turn off
-    self.startTime = "---"
-    self.endTime = "---"
+    self.startTime = startTime
+    self.endTime = endTime
 
   # This function actually sneds radio signal to edge device
   def sendSequenceToEdgeDevice(self,sequence):
@@ -149,13 +176,31 @@ class Pin:
   def showAsHtml(self):
     return "\n   <tr><td>%d</td> <td>%s</td> <td>%d</td> <td>%s</td> <td>%s</td>" % (self.id, self.type, self.state, self.startTime, self.endTime)  
 
-  # Pin configuration dialog
-  def showConfigDialog(self):
-    on_off_button = ''' <form method="get"> 
-      <input type="checkbox" name="maths" value="on"> ON/OFF 
-    </form> ''' 
-    return "<div>Pin %d<br> %s </div>" % (self.id, on_off_button)
+  # Display pin configuration dialog web form
+  def showConfigDialog(self): 
+    if self.state:
+      is_on = "checked"
+      is_off = ""
+    else:
+      is_on = ""
+      is_off = "checked"  
+
+    text = '''
+      <div>
+        <br>Pin %d
+          <div>
+            Current state 
+            <input type="radio" %s name="%d:state" value=1> ON
+            <input type="radio" %s name="%d:state" value=0> OFF
+          </div>
+          <div>
+            Start time  <input type="text" name="%d:startTime" value="%s"/>
+            End time  <input type="text" name="%d:endTime" value="%s"/>
+          </div>
+      </div>''' % (self.id,is_on,self.id,is_off,self.id,self.id,self.startTime,self.id,self.endTime)
   
+    return text
+
 '''
 ================================================================
     Section 2 - web interface 
@@ -175,11 +220,39 @@ class MainServer(object):
   def index(self):
     return "<html>" + myHub.showAsHtml() + "</html>"
 
+  # This function calls edge device dialog web form
   # Notice that parameter name must be device_id to match showAsHtml function of EdgeDevice Class
   @cherrypy.expose
   def configureEdgeDevice(self,device_id):
     selectedEdgeDevice = myHub.getEdgeDevice(int(device_id))
     return selectedEdgeDevice.showConfigDialog()
+
+  # This function gets executed when user clicks on Submit button on a form generated by 
+  # selectedEdgeDevice.showConfigDialog()
+  @cherrypy.expose
+  def submitEdgeDeviceConfig(self,**kwargs):
+    ''' configureEdgeDevice webform returns results in following key-value pair format
+2:startTime = 21:30
+2:state = 1
+2:endTime = 22:21
+3:startTime = ---
+deviceId = 3
+3:state = 0
+3:endTime = ---'''
+
+    # Extract device id, get correspondent edge device object and 
+    # pass all the parameters collected from configureEdgeDevice form to edge device
+    # configure function. Then simply return to the main page
+    for key, value in kwargs.iteritems():
+      if (key=="deviceId"):
+        # deviceId value of -1 indicates that user clicked on Cancel button
+        if (value != "-1"):
+          myEdgeDevice = myHub.getEdgeDevice(int(value))
+          myEdgeDevice.configure(kwargs)
+      
+    # Go back to main page
+    return "<html>" + myHub.showAsHtml() + "</html>"
+
 
 '''
 =================================================================
@@ -187,27 +260,22 @@ class MainServer(object):
 ================================================================='''
 def testMode(): 
   print myHub
-  
-  print "\nTesting momentary switch pin 2 of device 3"
-  device3 = myHub.getEdgeDevice(3)
-  device3.setPinState(2,1)
-  device3.setPinState(2,1)
-  device3.setPinState(2,0)
-  device3.setPinState(2,1)
-
-  print "\nTesting toggle switch pin 3 of device 4 "
-  device4 = myHub.getEdgeDevice(4)
-  device4.setPinState(3,1)
-  device4.setPinState(3,1)
-  device4.setPinState(3,0)
-  
   print myHub.showAsHtml()
 
 if __name__ == '__main__':
   # Create control hub with two edge devices
   myHub = ControlHub("Switch control hub")
-  myHub.addEdgeDevice(EdgeDevice("Yasha's mattress heater",3))
-  myHub.addEdgeDevice(EdgeDevice("Gila's mattress heater ",4))
+  
+  # Initializate edge devices
+  myHub.addEdgeDevice(EdgeDevice(3,"Yasha's mattress heater", \
+  [[2, PinTypes.momentary_switch, "21:30","22:20"], \
+  [3, PinTypes.toggle_switch,"---","---"]] \
+  ))
+ 
+  myHub.addEdgeDevice(EdgeDevice(4,"Gila's mattress heater ", \
+  [[2, PinTypes.momentary_switch, "22:30","23:10"], \
+  [3, PinTypes.toggle_switch,"---","---"]] \
+  ))  
 
   parser = argparse.ArgumentParser()
   parser.add_argument('-w', '--web', help='Run under web server',action="store_true")
