@@ -69,13 +69,36 @@ class EdgeDevice:
     pin = self.pins[pinId]
     pin.setState(pinValue)
 
+  # This prints a portion of total HTML table describing the info of this edge device and status of all its pins
   def showAsHtml(self):
-    text = '''<tr><td colspan="5" bgcolor="cyan"> device %s id=%d </td> </tr>''' % (self.name,self.id)
+    configure_btn = '''<form method="get" action="configureEdgeDevice">
+    <button  name="device_id" value ="%d" type="submit">Configure</button>
+    </form>''' % self.id
+
+    text = '''<tr><td colspan="5" bgcolor="cyan"> %s (id=%d) %s</td> </tr>''' % (self.name,self.id,configure_btn)
     text += "<tr><td>pin id</td> <td>pin type</td> <td>pin state</td> <td>Turn on at</td> <td>Turn off at</td></tr>"
     for pinId in sorted(self.pins.keys()):
       pin = self.pins[pinId]
       text += pin.showAsHtml()
     return text
+
+  # Display HTML form containing all the fields necessary for configuration of this edge device 
+  def showConfigDialog(self):
+    text = '''<html><b>Configuring edge device: %s (id=%d)</b>''' % (self.name, self.id)
+    
+    # Print configuration sections for each pin
+    for pinId in sorted(self.pins.keys()):
+      pin = self.pins[pinId]
+      text += pin.showConfigDialog()
+
+    text += '''<form method="get" action="submitEdgeDeviceConfig">
+    <button  name="device_id" value ="%d" type="submit">Submit</button>
+    </form>''' % self.id
+
+    text += "</html>"
+    return text
+
+
 
 # One pin on the edge device:
 # Edge device pin can be of the following types:
@@ -125,6 +148,13 @@ class Pin:
   # Show table html representation for the web server
   def showAsHtml(self):
     return "\n   <tr><td>%d</td> <td>%s</td> <td>%d</td> <td>%s</td> <td>%s</td>" % (self.id, self.type, self.state, self.startTime, self.endTime)  
+
+  # Pin configuration dialog
+  def showConfigDialog(self):
+    on_off_button = ''' <form method="get"> 
+      <input type="checkbox" name="maths" value="on"> ON/OFF 
+    </form> ''' 
+    return "<div>Pin %d<br> %s </div>" % (self.id, on_off_button)
   
 '''
 ================================================================
@@ -144,6 +174,12 @@ class MainServer(object):
   @cherrypy.expose
   def index(self):
     return "<html>" + myHub.showAsHtml() + "</html>"
+
+  # Notice that parameter name must be device_id to match showAsHtml function of EdgeDevice Class
+  @cherrypy.expose
+  def configureEdgeDevice(self,device_id):
+    selectedEdgeDevice = myHub.getEdgeDevice(int(device_id))
+    return selectedEdgeDevice.showConfigDialog()
 
 '''
 =================================================================
