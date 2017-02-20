@@ -10,6 +10,7 @@ pipes = [[0xE8,0xE8,0xF0,0xF0,0xE1],[0xAB,0xCD,0xAB,0xCD,0x71]]
 radio = NRF24(GPIO,spidev.SpiDev())
 
 # Initialize NRF24 radio
+GPIO.cleanup()
 radio.begin(0,17)
 radio.setChannel(0x78)
 radio.setDataRate(NRF24.BR_250KBPS)
@@ -45,9 +46,9 @@ def dbgPrint(prefix, msg):
     print " ".join(hex(n) for n in msg)
 
 # Send sequence of 0,1 turn on/off signals
-def sendSequence(board_id,pin_id,bitSequence,delayBtwBits):
+def sendSequence(sender_id,receiver_id,pin_id,bitSequence,delayBtwBits):
     for bit in bitSequence:
-        sendMessage(board_id,0xA4,pin_id,bit)
+        sendMessage(sender_id,receiver_id,0xA4,pin_id,bit)
         time.sleep(0.1)
         receiveMessage()
         time.sleep(delayBtwBits)
@@ -76,46 +77,10 @@ def receiveMessage(time_limit=0.1,time_interval=0.01):
             return -1
 
     # OK, radio data is available within the time limit
-    radio.read(receivedMsg, 4)
+    radio.read(receivedMsg, 5)
     dbgPrint("received message",receivedMsg)
     
     return receivedMsg
-
-
-# Temporary - will rewrite using classes
-# Arduino pin 2 controlls to optocoupler, pin 3 is conencted to led
-heaterStatus = 0
-def startHeaterControl(startTime,endTime):
-    global heaterStatus
-    time.sleep(0.1)
-
-    (start_hr, start_min) = map(int,startTime.split(':'))
-    (end_hr, end_min) = map(int,endTime.split(':'))
-
-    try:
-        while True:
-            tm = time.localtime()
-            timeStamp = "[" + time.strftime("%d %b %Y %H:%M:%S", tm) + "]"
-
-            # If local time is equal to start or end time send 0->1->0 sequence 
-            if ((tm.tm_hour==start_hr and tm.tm_min == start_min) and (heaterStatus == 0)):
-                print timeStamp + " Turning heater ON"
-                heaterStatus = 1
-                # Send 1-0 pulse to all boards, pin 2. Wait 0.5 sec between flipping a switch          
-                sendSequence(0x0,0x2,[0,0,1,1,0,0],0.5)
-            if ((tm.tm_hour == end_hr and tm.tm_min == end_min) and (heaterStatus == 1)): 
-                print timeStamp + " Turning heater OFF"
-                heaterStatus = 0
-                # Send 1-0 pulse to all boards, pin 2. Wait 0.5 sec between flipping a switch          
-                sendSequence(0x0,0x2,[0,0,1,1,0,0],0.5)       
-                        
-            # Wait 10 sec then check time again
-            time.sleep(10)
-
-    except KeyboardInterrupt:
-        print("Cleaning up...")
-        radio.end()
-        GPIO.cleanup()
 
 # This is a tesign function which repeatedly sends 0/1 to Arduino     
 def runTest(option): 

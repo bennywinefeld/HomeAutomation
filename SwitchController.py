@@ -11,6 +11,9 @@ def enum(**enums):
 # Enumerated types for pins of the edge devices
 PinTypes = enum(momentary_switch='momentary_switch', toggle_switch='toggle_switch',digital_input='digital_input', analog_input='analog_input')
 
+# This is an ID of the control hub, this numbe will be sent as a first byt in all communication packets to edge devices
+CONTROL_HUB_ID = 1
+
 # Instance of ControlHub contains a list of edge device objects
 class ControlHub:
   def __init__(self,name):
@@ -34,12 +37,21 @@ class ControlHub:
 
     print '''Error, can't find device %d in  %s''' % (id, self.name)
 
+  # This function starts forming the main web page (table with device and pin status)
+  # it's automatically invoked every 10 sec
   def showAsHtml(self):
+    tm = time.localtime()
+    timeStamp = time.strftime("%d %b %Y %H:%M:%S", tm)
+
     text = '''<h2> %s </h2>
     <table border=1>''' % self.name
     for device in self.edgeDevices:
+      # For all pins of all edge devices compare current with startTime and
+      # endTime and set status to 1 or 0 correspondingly
+      device.refreshPinState()
       text += "\n " + device.showAsHtml()
     text += "\n</table>\n"
+    text += "<div><br>"+timeStamp+"</div>"
     return text
 
 # Each instance of this class controls one edge device with few pin switches which can be set to either 0 or 1 
@@ -74,6 +86,12 @@ class EdgeDevice:
         pin.endTime = value
       elif (parmName=="state"):
         pin.setState(int(value))
+
+  # Update pin state depending on current time
+  def refreshPinState(self):
+    for pinId in sorted(self.pins.keys()):
+      pin = self.pins[pinId]
+      pin.refreshPinState()
 
   def __repr__(self):
     return getInfo(self)
@@ -143,7 +161,10 @@ class Pin:
   # This function actually sneds radio signal to edge device
   def sendSequenceToEdgeDevice(self,sequence):
     print "Sending sequence " + str(sequence) + " to pin " + str(self.id) + " of device " + str(self.deviceId)
-
+    for bit in sequence:
+      # <sender_device_id>, <receiver__device_id>, <command_code>, <pin_id>, 0/1
+      sendMessage(CONTROL_HUB_ID,self.deviceId,0xA4,self.id,bit)
+  
   # For output pin - set pin state and send signal to edge device
   def setState(self, pinValue):
     # Reject attempt to set value for input pin
@@ -164,6 +185,26 @@ class Pin:
       self.sendSequenceToEdgeDevice([0,1,0])
     # Remember the state value
     self.state = pinValue
+    # Let the receiving edge device time to process the packet before sending something new
+    time.sleep(0.2)
+
+  # Update pin state depending on current time
+  def refreshPinState(self):
+    tm = time.localtime()
+    #timeStamp = time.strftime("%d %b %Y %H:%M:%S", tm)
+
+    if ((self.startTime == '---') or (self.endTime == '---')):
+      return
+
+    (startHr, startMin) = map(int,self.startTime.split(":"))
+    (endHr, endMin) = map(int,self.endTime.split(":"))
+    print "Refreshing state of pin %d of device %d" % (self.id, self.deviceId)
+    if (tm.tm_hour==startHr and tm.tm_min == startMin):
+      print "Refreshing state of pin %d of device %d to 1" % (self.id, self.deviceId)
+      self.setState(1)
+    elif (tm.tm_hour==endHr and tm.tm_min == endMin):
+      self.setState(0)
+      print "Refreshing state of pin %d of device %d to 0" % (self.id, self.deviceId)
 
   # Return info (name, state) about this pin object in gets format
   def __repr__(self):
@@ -216,9 +257,10 @@ class MainServer(object):
 
  
   # This is the entry point to the web interface
+  # force refresh of the main page every 10 sec
   @cherrypy.expose
   def index(self):
-    return "<html>" + myHub.showAsHtml() + "</html>"
+    return '''<html> <meta http-equiv="refresh" content="10" />''' + myHub.showAsHtml() + "</html>"
 
   # This function calls edge device dialog web form
   # Notice that parameter name must be device_id to match showAsHtml function of EdgeDevice Class
@@ -263,7 +305,7 @@ def testMode():
   print myHub.showAsHtml()
 
 if __name__ == '__main__':
-  # Create control hub with two edge devices
+  # Create control hub no.1 with two edge devices
   myHub = ControlHub("Switch control hub")
   
   # Initializate edge devices
@@ -292,3 +334,29 @@ if __name__ == '__main__':
   else:
     print "Running testing in a terminal mode"
     testMode()
+
+
+'''try:
+        while True:
+            tm = time.localtime()
+            timeStamp = "[" + time.strftime("%d %b %Y %H:%M:%S", tm) + "]"
+
+            # If local time is equal to start or end time send 0->1->0 sequence 
+            if ((tm.tm_hour==start_hr and tm.tm_min == start_min) and (heaterStatus == 0)):
+                print timeStamp + " Turning heater ON"
+                heaterStatus = 1
+                # Send 1-0 pulse to all boards, pin 2. Wait 0.5 sec between flipping a switch          
+                sendSequence(0x0,0x2,[0,0,1,1,0,0],0.5)
+            if ((tm.tm_hour == end_hr and tm.tm_min == end_min) and (heaterStatus == 1)): 
+                print timeStamp + " Turning heater OFF"
+                heaterStatus = 0
+                # Send 1-0 pulse to all boards, pin 2. Wait 0.5 sec between flipping a switch          
+                sendSequence(0x0,0x2,[0,0,1,1,0,0],0.5)       
+                        
+            # Wait 10 sec then check time again
+            time.sleep(10)
+
+    except KeyboardInterrupt:
+        print("Cleaning up...")
+        radio.end()
+        GPIO.cleanup()'''
