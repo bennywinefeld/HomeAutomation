@@ -1,12 +1,25 @@
-import string, cherrypy, os, sys, argparse
-from radioComm import *
+import string, cherrypy, os, sys, argparse, time, sys
+try:
+  from radioComm import *
+except:
+  print "Can't load radio module, will run in emulation mode"
+  def sendMessage(*args):
+    print "sendMessage is invoked, but not executed"
+
+
+def dbgPrint(msg):
+    currTime = time.strftime("%d %b %Y %H:%M:%S", time.localtime())
+    print "[" + currTime + "] " + msg
+
+def enum(**enums):
+    return type('Enum', (), enums)
+
 
 '''==============================================================
    Section 1 - classes defining behavior of the structure 
     ControlHub -> EdgeDevice/s -> Pin/s
   ==============================================================='''
-def enum(**enums):
-    return type('Enum', (), enums)
+
 
 # Enumerated types for pins of the edge devices
 PinTypes = enum(momentary_switch='momentary_switch', toggle_switch='toggle_switch',digital_input='digital_input', analog_input='analog_input')
@@ -35,23 +48,29 @@ class ControlHub:
       if device.id == id:
         return device
 
-    print '''Error, can't find device %d in  %s''' % (id, self.name)
+    dbgPrint('''Error, can't find device %d in  %s''' % (id, self.name))
 
   # This function starts forming the main web page (table with device and pin status)
-  # it's automatically invoked every 10 sec
+  # refresh meta tag insures periodic refresh of the web page, which means that showAsHtml function 
+  # gets periodically executed 
   def showAsHtml(self):
     tm = time.localtime()
     timeStamp = time.strftime("%d %b %Y %H:%M:%S", tm)
+    text = '''
+    <html> <meta http-equiv="refresh" content="5" />
+      <h2> %s </h2>
+      <table border=1>''' % self.name
 
-    text = '''<h2> %s </h2>
-    <table border=1>''' % self.name
     for device in self.edgeDevices:
       # For all pins of all edge devices compare current with startTime and
       # endTime and set status to 1 or 0 correspondingly
       device.refreshPinState()
       text += "\n " + device.showAsHtml()
-    text += "\n</table>\n"
-    text += "<div><br>"+timeStamp+"</div>"
+    text += '''
+      </table>
+      <div><br> %s </div>
+    </html> ''' % timeStamp
+    
     return text
 
 # Each instance of this class controls one edge device with few pin switches which can be set to either 0 or 1 
@@ -160,7 +179,7 @@ class Pin:
 
   # This function actually sneds radio signal to edge device
   def sendSequenceToEdgeDevice(self,sequence):
-    print "Sending sequence " + str(sequence) + " to pin " + str(self.id) + " of device " + str(self.deviceId)
+    dbgPrint("Sending sequence " + str(sequence) + " to pin " + str(self.id) + " of device " + str(self.deviceId))
     for bit in sequence:
       # <sender_device_id>, <receiver__device_id>, <command_code>, <pin_id>, 0/1
       sendMessage(CONTROL_HUB_ID,self.deviceId,0xA4,self.id,bit)
@@ -169,12 +188,12 @@ class Pin:
   def setState(self, pinValue):
     # Reject attempt to set value for input pin
     if (not (self.type==PinTypes.momentary_switch or PinTypes.toggle_switch)):
-      print "Can't set value to a pin " + pinId + " which is not an output switch" 
+      dbgPrint("Can't set value to a pin " + pinId + " which is not an output switch") 
       return
     
     # If current pin state is alredy equal to speciefied pinValue - no need to do anything
     if (pinValue == self.state):
-      print "Pin " + str(self.id) + " of device " + str(self.deviceId) + " is already at state " + str(self.state)
+      #dbgPrint("Pin " + str(self.id) + " of device " + str(self.deviceId) + " is already at state " + str(self.state))
       return
 
     # For toggle switch, simple send signal to edge device resulting in 
@@ -198,13 +217,12 @@ class Pin:
 
     (startHr, startMin) = map(int,self.startTime.split(":"))
     (endHr, endMin) = map(int,self.endTime.split(":"))
-    print "Refreshing state of pin %d of device %d" % (self.id, self.deviceId)
-    if (tm.tm_hour==startHr and tm.tm_min == startMin):
-      print "Refreshing state of pin %d of device %d to 1" % (self.id, self.deviceId)
+    if (tm.tm_hour==startHr and tm.tm_min == startMin and self.state == 0):
+      dbgPrint("refreshing state of pin %d of device %d to 1" % (self.id, self.deviceId))
       self.setState(1)
-    elif (tm.tm_hour==endHr and tm.tm_min == endMin):
+    elif (tm.tm_hour==endHr and tm.tm_min == endMin and self.state == 1):
       self.setState(0)
-      print "Refreshing state of pin %d of device %d to 0" % (self.id, self.deviceId)
+      dbgPrint("refreshing state of pin %d of device %d to 0" % (self.id, self.deviceId))
 
   # Return info (name, state) about this pin object in gets format
   def __repr__(self):
@@ -257,10 +275,10 @@ class MainServer(object):
 
  
   # This is the entry point to the web interface
-  # force refresh of the main page every 10 sec
+  # force refresh of the main page every 5 sec
   @cherrypy.expose
   def index(self):
-    return '''<html> <meta http-equiv="refresh" content="10" />''' + myHub.showAsHtml() + "</html>"
+    return '''<html> <meta http-equiv="refresh" content="5" />''' + myHub.showAsHtml() + "</html>"
 
   # This function calls edge device dialog web form
   # Notice that parameter name must be device_id to match showAsHtml function of EdgeDevice Class
@@ -336,25 +354,8 @@ if __name__ == '__main__':
     testMode()
 
 
-'''try:
-        while True:
-            tm = time.localtime()
-            timeStamp = "[" + time.strftime("%d %b %Y %H:%M:%S", tm) + "]"
-
-            # If local time is equal to start or end time send 0->1->0 sequence 
-            if ((tm.tm_hour==start_hr and tm.tm_min == start_min) and (heaterStatus == 0)):
-                print timeStamp + " Turning heater ON"
-                heaterStatus = 1
-                # Send 1-0 pulse to all boards, pin 2. Wait 0.5 sec between flipping a switch          
-                sendSequence(0x0,0x2,[0,0,1,1,0,0],0.5)
-            if ((tm.tm_hour == end_hr and tm.tm_min == end_min) and (heaterStatus == 1)): 
-                print timeStamp + " Turning heater OFF"
-                heaterStatus = 0
-                # Send 1-0 pulse to all boards, pin 2. Wait 0.5 sec between flipping a switch          
-                sendSequence(0x0,0x2,[0,0,1,1,0,0],0.5)       
-                        
-            # Wait 10 sec then check time again
-            time.sleep(10)
+'''
+       
 
     except KeyboardInterrupt:
         print("Cleaning up...")
