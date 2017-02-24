@@ -43,10 +43,15 @@ void setup() {
   /* By default pins 2 and 3 are outputs, but we can redefine them through wireless link 
     pin 2 drives optocoupler and 3 is connected to green led for debugging messages
    */
+ 
   pinMode(2, OUTPUT);
+  digitalWrite(2,0);
   pinMode(3, OUTPUT);
+  digitalWrite(3,0);
   pinMode(4, OUTPUT);
+  digitalWrite(4,0);
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN,0);
   
   radio.begin();
   radio.setPALevel(RF24_PA_MAX);
@@ -56,13 +61,16 @@ void setup() {
   radio.setAutoAck(true);
   radio.setDataRate(RF24_250KBPS);
   radio.enableDynamicPayloads();
-  radio.openWritingPipe(0xABCDABCD71LL);
-  radio.openReadingPipe(1,0xE8E8F0F0E1LL);
+//#uint8_t address[] = { 0xCC,0xCE,0xCC,0xCE,0x00 + BOARD_ID };
+  
+  radio.openWritingPipe(0xABCDABCD71LL + BOARD_ID);
+  radio.openReadingPipe(1,0xE8E8F0F0E0LL + BOARD_ID);
   radio.powerUp();
   radio.startListening();
 
   // Blink pin 3 BOARD_ID times to indicate success of initialization
   myBlink(3,300,500,BOARD_ID);
+  //Serial.print("Listening to pipe: ",);
 }
 
 void loop() {  
@@ -104,6 +112,7 @@ void loop() {
   if ((edgeDeviceID != BOARD_ID) && (edgeDeviceID != 0) ) {
     Serial.println("Received message is for different board, ignore");
     delay(50);
+    radio.startListening();
     return;
   }
 
@@ -150,3 +159,4 @@ void loop() {
     
   radio.startListening();
 }
+

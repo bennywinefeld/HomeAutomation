@@ -1,8 +1,9 @@
 import string, cherrypy, os, sys, argparse, time, sys
+
 try:
   from radioComm import *
 except:
-  print "Can't load radio module, will run in emulation mode"
+  print("Can't load radio module, will run in emulation mode")
   def sendMessage(*args):
     print "sendMessage is invoked, but not executed"
 
@@ -104,6 +105,7 @@ class EdgeDevice:
       elif (parmName=="endTime"):
         pin.endTime = value
       elif (parmName=="state"):
+        dbgPrint("Launching pin.setState(%s) from <edge_device>.configure " % value )
         pin.setState(int(value))
 
   # Update pin state depending on current time
@@ -144,7 +146,7 @@ class EdgeDevice:
     text = '''
     <html>
       <b>Configuring edge device: %s (id=%d)</b>
-      <form method="get" action="submitEdgeDeviceConfig">''' % (self.name, self.id)
+      <form method="post" action="submitEdgeDeviceConfig">''' % (self.name, self.id)
 
     # Print configuration web form sections for each pin
     for pinId in sorted(self.pins.keys()):
@@ -183,6 +185,8 @@ class Pin:
     for bit in sequence:
       # <sender_device_id>, <receiver__device_id>, <command_code>, <pin_id>, 0/1
       sendMessage(CONTROL_HUB_ID,self.deviceId,0xA4,self.id,bit)
+      time.sleep(0.5)
+      receiveMessage(self.deviceId)
   
   # For output pin - set pin state and send signal to edge device
   def setState(self, pinValue):
@@ -196,12 +200,14 @@ class Pin:
       #dbgPrint("Pin " + str(self.id) + " of device " + str(self.deviceId) + " is already at state " + str(self.state))
       return
 
-    # For toggle switch, simple send signal to edge device resulting in 
+    dbgPrint("Switching pin %d %d->%d" % (self.id, self.state, pinValue))
+
+    # For toggle switch, simplY send signal to edge device resulting in 
     # setting its physical out pin with id identical to self.id to a specified value
     if (self.type == PinTypes.toggle_switch):
       self.sendSequenceToEdgeDevice([pinValue])
     elif (self.type == PinTypes.momentary_switch):
-      self.sendSequenceToEdgeDevice([0,1,0])
+      self.sendSequenceToEdgeDevice([0,0,1,1,0,0])
     # Remember the state value
     self.state = pinValue
     # Let the receiving edge device time to process the packet before sending something new
@@ -221,8 +227,8 @@ class Pin:
       dbgPrint("refreshing state of pin %d of device %d to 1" % (self.id, self.deviceId))
       self.setState(1)
     elif (tm.tm_hour==endHr and tm.tm_min == endMin and self.state == 1):
-      self.setState(0)
       dbgPrint("refreshing state of pin %d of device %d to 0" % (self.id, self.deviceId))
+      self.setState(0)
 
   # Return info (name, state) about this pin object in gets format
   def __repr__(self):
@@ -275,10 +281,10 @@ class MainServer(object):
 
  
   # This is the entry point to the web interface
-  # force refresh of the main page every 5 sec
+  # force refresh of the main page every 10 sec
   @cherrypy.expose
   def index(self):
-    return '''<html> <meta http-equiv="refresh" content="5" />''' + myHub.showAsHtml() + "</html>"
+    return '''<html> <meta http-equiv="refresh" content="10" />''' + myHub.showAsHtml() + "</html>"
 
   # This function calls edge device dialog web form
   # Notice that parameter name must be device_id to match showAsHtml function of EdgeDevice Class
@@ -308,6 +314,7 @@ deviceId = 3
         # deviceId value of -1 indicates that user clicked on Cancel button
         if (value != "-1"):
           myEdgeDevice = myHub.getEdgeDevice(int(value))
+          dbgPrint("submitEdgeDeviceConfig launching myEdgeDevice.configure")
           myEdgeDevice.configure(kwargs)
       
     # Go back to main page

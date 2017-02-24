@@ -1,13 +1,12 @@
 # This file contains low-level functions required for communication with Arduino edge 
 # devices through NRF24 board plus some general purpose procs
-
-import spidev
+print "sourcing radioComm.py"
+import spidev,time
 import RPi.GPIO as GPIO
 from lib_nrf24 import NRF24
 
 # Initialize NRF24 radio - we use global instance 'radio'
 GPIO.setmode(GPIO.BCM)
-pipes = [[0xE8,0xE8,0xF0,0xF0,0xE1],[0xAB,0xCD,0xAB,0xCD,0x71]]
 radio = NRF24(GPIO,spidev.SpiDev())
 GPIO.cleanup()
 radio.begin(0,17)
@@ -19,9 +18,6 @@ radio.setRetries(15,15);
 radio.setAutoAck(True)
 radio.enableDynamicPayloads()
 radio.enableAckPayload()
-
-radio.openWritingPipe(pipes[0])
-radio.openReadingPipe(1,pipes[1])
 radio.powerUp()
 radio.printDetails()
 
@@ -36,12 +32,18 @@ def dbgPrintPacket(msg,prefix="dbg"):
 def sendMessage(sender_id,receiver_id, command_code, lsb_byte=0, msb_byte=0, repeat=1):
     sentMsg = [sender_id,receiver_id, command_code, lsb_byte, msb_byte]
     radio.stopListening()
+
+    # Open reading writing pipes to a given device
+    radio.openReadingPipe(receiver_id,[0xAB,0xCD,0xAB,0xCD,0x71 + receiver_id])
+    radio.openWritingPipe([0xE8,0xE8,0xF0,0xF0,0xE0 + receiver_id])
+    
+    #dbgPrintPacket(address, " Writing to pipe: ") 
     dbgPrintPacket(sentMsg,"sending message")
     radio.write(sentMsg)
     radio.startListening()  
 
 # Receive 4 byte wireless message
-def receiveMessage(time_limit=0.1,time_interval=0.01):
+def receiveMessage(receiver_id,time_limit=0.1,time_interval=0.01):
     # Need to declare list first before filling it up
     receivedMsg = [0,0,0,0,0]
     start = time.time()
