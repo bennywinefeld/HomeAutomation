@@ -45,7 +45,9 @@ class ControlHub:
 
   # This function starts forming the main web page (table with device and pin status)
   # refresh meta tag insures periodic refresh of the web page, which means that showAsHtml function 
-  # gets periodically executed 
+  # gets periodically executed
+  # This is necessary for automatic launch of  device.refreshPinState() function, which 
+  # checks if it's time to automatically turn the switch on or off
   def showAsHtml(self):
     tm = time.localtime()
     timeStamp = time.strftime("%d %b %Y %H:%M:%S", tm)
@@ -312,7 +314,8 @@ deviceId = 3
         # deviceId value of -1 indicates that user clicked on Cancel button
         if (value != "-1"):
           myEdgeDevice = myHub.getEdgeDevice(int(value))
-          dbgPrint("submitEdgeDeviceConfig launching myEdgeDevice.configure")
+          # Uncomment next line if you want to see cherry py log events (liek page reload)
+          #dbgPrint("submitEdgeDeviceConfig launching myEdgeDevice.configure")
           myEdgeDevice.configure(kwargs)
       
     # Go back to main page
@@ -378,6 +381,7 @@ if __name__ == '__main__':
     print "Starting web server"
     try:
       cherrypy.config.update({'server.socket_host': '0.0.0.0','server.socket_port': 8090})
+      cherrypy.config.update({'log.screen': False})
       cherrypy.tree.mount(MainServer(),"/","main.cfg") 
       cherrypy.engine.start()
       cherrypy.engine.block()
