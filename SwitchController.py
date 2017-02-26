@@ -1,13 +1,6 @@
 import string, cherrypy, os, sys, argparse, time, sys
 
-try:
-  from radioComm import *
-except:
-  print("Can't load radio module, will run in emulation mode")
-  def sendMessage(*args):
-    print "sendMessage is invoked, but not executed"
-
-
+# Auxiliary functions
 def dbgPrint(msg):
     currTime = time.strftime("%d %b %Y %H:%M:%S", time.localtime())
     print "[" + currTime + "] " + msg
@@ -20,7 +13,6 @@ def enum(**enums):
    Section 1 - classes defining behavior of the structure 
     ControlHub -> EdgeDevice/s -> Pin/s
   ==============================================================='''
-
 
 # Enumerated types for pins of the edge devices
 PinTypes = enum(momentary_switch='momentary_switch', toggle_switch='toggle_switch',digital_input='digital_input', analog_input='analog_input')
@@ -58,7 +50,7 @@ class ControlHub:
     tm = time.localtime()
     timeStamp = time.strftime("%d %b %Y %H:%M:%S", tm)
     text = '''
-    <html> <meta http-equiv="refresh" content="5" />
+    <html> <meta http-equiv="refresh" content="10" />
       <h2> %s </h2>
       <table border=1>''' % self.name
 
@@ -105,7 +97,6 @@ class EdgeDevice:
       elif (parmName=="endTime"):
         pin.endTime = value
       elif (parmName=="state"):
-        dbgPrint("Launching pin.setState(%s) from <edge_device>.configure " % value )
         pin.setState(int(value))
 
   # Update pin state depending on current time
@@ -123,6 +114,13 @@ class EdgeDevice:
     for pinId in sorted(self.pins.keys()):
       text += "\n  " + self.pins[pinId].getInfo()  
     return text
+
+  # Return all pin objects which belong to this device
+  def getPins(self):
+    pins = []
+    for pinId in sorted(self.pins.keys()):
+      pins.append(self.pins[pinId])
+    return pins
 
   # This prints a portion of main HTML table describing the info of this edge device and status of all its pins
   def showAsHtml(self):
@@ -322,18 +320,17 @@ deviceId = 3
 
 
 '''
-=================================================================
-    Section 3 - testing and main proc
-================================================================='''
-def testMode(): 
-  print myHub
-  print myHub.showAsHtml()
+==========================================================================
+    Section 3 - main proc, can launch working (web) mode or simple testing
+=========================================================================='''
 
 if __name__ == '__main__':
   # Create control hub no.1 with two edge devices
   myHub = ControlHub("Switch control hub")
   
-  # Initializate edge devices
+  # Create and initializate edge devices
+  # Each device has ID, which must match BOARD_ID definition in Arduino code
+  # uploaded to the correspondent device!
   myHub.addEdgeDevice(EdgeDevice(3,"Yasha's mattress heater", \
   [[2, PinTypes.momentary_switch, "21:30","22:20"], \
   [3, PinTypes.toggle_switch,"---","---"]] \
@@ -344,27 +341,48 @@ if __name__ == '__main__':
   [3, PinTypes.toggle_switch,"---","---"]] \
   ))  
 
+  # Read command line arguments
   parser = argparse.ArgumentParser()
-  parser.add_argument('-w', '--web', help='Run under web server',action="store_true")
+  parser.add_argument('-t','--test', help='Create all objects and print main web page to the terminal',action="store_true")
   args = parser.parse_args()
   
-  if args.web:
-    print "Starting web server"
-    cherrypy.config.update({'server.socket_host': '0.0.0.0','server.socket_port': 8090})
-    cherrypy.tree.mount(MainServer(),"/","main.cfg") 
-    #cherrypy.quickstart(MainServer())
-    cherrypy.engine.start()
-    cherrypy.engine.block()
+  # Source radioComm.py module and initialize radio object
+  # if radio start fails, override sendMessage function with a bogus
+  # one which doesn't do anything 
+  try:
+    from radioComm import *
+  except:
+    print("Can't load radio module, will run in emulation mode")
+    def sendMessage(*args):
+      print "sendMessage is invoked, but not executed"
 
+  if args.test:
+    print "\nRunning testing in a terminal mode"
+
+    # Loop through all edge devices in the hub
+    for edgeDevice in myHub.edgeDevices:
+      print("Testing edge device %s(id=%d)" % (edgeDevice.name, edgeDevice.id))
+      for pin in edgeDevice.getPins():
+        print(" testing pin %d swicth to 1 and then back to 0" % pin.id)
+        pin.setState(1)
+        time.sleep(1)
+        pin.setState(0)
+        time.sleep(1)
+
+    #print myHub
+    #print myHub.showAsHtml()
+    print("\nCleaning up communication channel ...")
+    radio.end()
+    GPIO.cleanup()
   else:
-    print "Running testing in a terminal mode"
-    testMode()
-
-
-'''
-       
-
+    print "Starting web server"
+    try:
+      cherrypy.config.update({'server.socket_host': '0.0.0.0','server.socket_port': 8090})
+      cherrypy.tree.mount(MainServer(),"/","main.cfg") 
+      cherrypy.engine.start()
+      cherrypy.engine.block()
     except KeyboardInterrupt:
-        print("Cleaning up...")
-        radio.end()
-        GPIO.cleanup()'''
+      print("\nCleaning up communication channel...")
+      radio.end()
+      GPIO.cleanup()
+  
