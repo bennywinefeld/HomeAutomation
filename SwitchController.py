@@ -43,6 +43,9 @@ class ControlHub:
 
     dbgPrint('''Error, can't find device %d in  %s''' % (id, self.name))
 
+  def refreshPinState(self):
+    for device in self.edgeDevices:
+      device.refreshPinState()
   # This function starts forming the main web page (table with device and pin status)
   # refresh meta tag insures periodic refresh of the web page, which means that showAsHtml function 
   # gets periodically executed
@@ -101,7 +104,7 @@ class EdgeDevice:
       elif (parmName=="state"):
         pin.setState(int(value))
 
-  # Update pin state depending on current time
+  # Update pin state i.e automatically turn on/off if time is right
   def refreshPinState(self):
     for pinId in sorted(self.pins.keys()):
       pin = self.pins[pinId]
@@ -178,16 +181,7 @@ class Pin:
     # Time for automatic turn/on turn off
     self.startTime = startTime
     self.endTime = endTime
-
-  # This function actually sneds radio signal to edge device
-  def sendSequenceToEdgeDevice(self,sequence):
-    dbgPrint("Sending sequence " + str(sequence) + " to pin " + str(self.id) + " of device " + str(self.deviceId))
-    for bit in sequence:
-      # <sender_device_id>, <receiver__device_id>, <command_code>, <pin_id>, 0/1
-      sendMessage(CONTROL_HUB_ID,self.deviceId,0xA4,self.id,bit)
-      time.sleep(0.5)
-      receiveMessage(self.deviceId)
-  
+ 
   # For output pin - set pin state and send signal to edge device
   def setState(self, pinValue):
     # Reject attempt to set value for input pin
@@ -202,12 +196,13 @@ class Pin:
 
     dbgPrint("Switching pin %d %d->%d" % (self.id, self.state, pinValue))
 
-    # For toggle switch, simplY send signal to edge device resulting in 
+    # For toggle switch, simply send signal to edge device resulting in 
     # setting its physical out pin with id identical to self.id to a specified value
     if (self.type == PinTypes.toggle_switch):
-      self.sendSequenceToEdgeDevice([pinValue])
+      sendMessageWithConfirm(CONTROL_HUB_ID,self.deviceId,0xA4,self.id,pinValue)
     elif (self.type == PinTypes.momentary_switch):
-      self.sendSequenceToEdgeDevice([0,0,1,1,0,0])
+      for bit in [0,1,0]:
+        sendMessageWithConfirm(CONTROL_HUB_ID,self.deviceId,0xA4,self.id,bit)
     # Remember the state value
     self.state = pinValue
     # Let the receiving edge device time to process the packet before sending something new
@@ -381,12 +376,21 @@ if __name__ == '__main__':
     print "Starting web server"
     try:
       cherrypy.config.update({'server.socket_host': '0.0.0.0','server.socket_port': 8090})
-      cherrypy.config.update({'log.screen': False})
+      # Uncomment the next line if you want to suppress Cherrypy own messages
+      #cherrypy.config.update({'log.screen': False})
       cherrypy.tree.mount(MainServer(),"/","main.cfg") 
       cherrypy.engine.start()
+      # Go into infinite loop refreshing pin state for time turn on/off
+      while(True):
+        myHub.refreshPinState()
+        time.sleep(10)
+
       cherrypy.engine.block()
+  
+      
     except KeyboardInterrupt:
       print("\nCleaning up communication channel...")
       radio.end()
       GPIO.cleanup()
+      exit()
   
