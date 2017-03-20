@@ -330,12 +330,12 @@ if __name__ == '__main__':
   # Each device has ID, which must match BOARD_ID definition in Arduino code
   # uploaded to the correspondent device!
   myHub.addEdgeDevice(EdgeDevice(3,"Yasha's mattress heater", \
-  [[2, PinTypes.momentary_switch, "21:30","22:20"], \
+  [[2, PinTypes.momentary_switch, "21:30","22:00"], \
   [3, PinTypes.toggle_switch,"---","---"]] \
   ))
  
   myHub.addEdgeDevice(EdgeDevice(4,"Gila's mattress heater ", \
-  [[2, PinTypes.momentary_switch, "22:30","23:10"], \
+  [[2, PinTypes.momentary_switch, "22:15","22:45"], \
   [3, PinTypes.toggle_switch,"---","---"]] \
   ))  
 

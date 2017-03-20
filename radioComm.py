@@ -90,50 +90,30 @@ def receiveMessage(time_limit=0.2,time_interval=0.02):
     return receivedMsg
 
 # This is a testing function which repeatedly sends 0/1 to Arduino     
-def runTest(option): 
+def runTest(boardId): 
+    print "Testing board %s" % boardId
     time.sleep(0.5)
     
-    # Usage sendSequence(board_id,pin_id,bitSequence,delayBtwBits=1)
+    # All boards turn pins 2 and 3 off->on->off
+    pinId = 3
+    totalTransmissions = 100
+    goodTransmissions = 0
+    badTransmissions = 0
+    attemptCnt = 0
     try:
-        if (option == "one_pulse"):
-            # Toggle pin 3 of device 4
-            for signal in [0,0,1,1,0,0]:
-                sendMessage(0x1,0x4,0xA1,3,signal)
-                time.sleep(0.5)
-                receiveMessage()
-                time.sleep(0.5)
-        elif(option == "long_sequence"):
-            # All boards turn pins 2 and 3 off->on->off
-            totalTransmissions = 300
-            goodTransmissions = 0
-            badTransmissions = 0
-            attemptCnt = 0
-            for i in range(totalTransmissions):
-                print("Transmission %d/%d" % (i, totalTransmissions))
-                # <sender>,<receiver>,<command>,pin,<value>
-                attempts = sendMessageWithConfirm(1,4,0xA4, 3, i % 2)
-                time.sleep(1)
-                print(" attempts = %d" % attempts)
-                if (attempts > 0):
-                    attemptCnt += attempts
-                    goodTransmissions += 1;
-                else:
-                    badTransmissions += 1;
-                
-            
-            print("\n\n %d/%d good transmissions, average num of attempts = %.2f" % (goodTransmissions, totalTransmissions, float(attemptCnt)/float(goodTransmissions)))
-        elif(option == "listen_only"):
-            print "Starting listening"
-            radio.startListening()
-            while True:
-                receiveMessage(1,time_interval=0.01)
-        else:
-            print "Incorrect option",option
-            print("Cleaning up")
-            radio.end()
-            GPIO.cleanup()
-            exit()
-            
+        for i in range(totalTransmissions):
+            print("Transmission %d/%d" % (i, totalTransmissions))
+            # <sender>,<receiver>,<command>,pin,<value>
+            attempts = sendMessageWithConfirm(1,int(boardId),0xA4, pinId, i % 2)
+            time.sleep(1)
+            print(" attempts = %d" % attempts)
+            if (attempts > 0):
+                attemptCnt += attempts
+                goodTransmissions += 1;
+            else:
+                badTransmissions += 1;       
+        print("\n\n %d/%d good transmissions, average num of attempts = %.2f" % (goodTransmissions, totalTransmissions, float(attemptCnt)/float(goodTransmissions)))
+                    
     except KeyboardInterrupt:
         print("Cleaning up")
         radio.end()
